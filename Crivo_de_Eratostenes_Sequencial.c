@@ -56,8 +56,7 @@ int main(int argc, char **argv) {
   }
 
   for (int i = 0; i < count; i++){
-    fprintf(fout, "%d", primes[i]);
-    fprintf(fout, ",");
+    fprintf(fout, "%d\n", primes[i]);
   }
 
   fclose(fout);

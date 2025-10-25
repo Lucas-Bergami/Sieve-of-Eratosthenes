@@ -8,7 +8,7 @@ MPICC = mpicc
 CC = gcc
 
 NP = 4
-N = 100
+N = 1000000
 
 # ----------------------
 # Versão paralela MPI
@@ -25,7 +25,8 @@ run: $(EXEC)
 profile: $(SRC)
 	$(MPICC) -pg -o $(EXEC) $(SRC) -lm
 	chmod +x $(EXEC)
-	./$(EXEC) $(N)
+	mpirun -np $(NP) ./$(EXEC) $(N)
+	@echo "Running gprof on gmon.out. Note: This may only reflect the profile of the last process to finish."
 	gprof $(EXEC) gmon.out > gprof_report.txt
 	@echo "Relatório de profiling gerado em gprof_report.txt"
 
