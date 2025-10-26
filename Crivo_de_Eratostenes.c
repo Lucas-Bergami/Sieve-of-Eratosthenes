@@ -133,23 +133,76 @@ int main(int argc, char **argv) {
         MPI_Send(local_primes, local_count, MPI_UNSIGNED_LONG_LONG, 0, 1, MPI_COMM_WORLD);
         free(local_primes);
     } else {
-        FILE *fout = fopen("primos.txt", "w");
-        for (size_t i = 0; i < prime_count; i++)
-            fprintf(fout, "%llu\n", (unsigned long long)primes_sqrt[i]);
+        // This structure will hold the results from each slave
+        typedef struct {
+            uint64_t *primes;
+            size_t count;
+        } SlaveResult;
 
+        SlaveResult *slave_results = NULL;
+        if (size > 1) {
+            slave_results = malloc((size - 1) * sizeof(SlaveResult));
+            if (!slave_results) {
+                perror("malloc for slave_results");
+                MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+            }
+        }
+
+        // Receive results from all slaves first
         for (int s = 1; s < size; s++) {
             size_t count;
             MPI_Recv(&count, 1, MPI_UNSIGNED_LONG_LONG, s, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            uint64_t *arr = malloc(count * sizeof(uint64_t));
-            MPI_Recv(arr, count, MPI_UNSIGNED_LONG_LONG, s, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (size_t i = 0; i < count; i++)
-                fprintf(fout, "%llu\n", (unsigned long long)arr[i]);
-            free(arr);
+
+            uint64_t *arr = NULL;
+            if (count > 0) {
+                arr = malloc(count * sizeof(uint64_t));
+                if (!arr) {
+                    perror("malloc for received primes");
+                    for (int i = 1; i < s; i++) free(slave_results[i-1].primes);
+                    free(slave_results);
+                    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+                }
+                MPI_Recv(arr, count, MPI_UNSIGNED_LONG_LONG, s, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            }
+            
+            slave_results[s-1].primes = arr;
+            slave_results[s-1].count = count;
         }
 
-        fclose(fout);
+        // Stop the timer now that all computation and communication is done
         t1 = MPI_Wtime();
         printf("Tempo de execução: %f segundos\n", t1 - t0);
+
+        // Now, write all collected primes to the output file
+        FILE *fout = fopen("primos.txt", "w");
+        if (!fout) {
+            perror("fopen for primos.txt");
+            if (size > 1) {
+                for (int s = 1; s < size; s++) {
+                    if (slave_results[s-1].count > 0) free(slave_results[s-1].primes);
+                }
+                free(slave_results);
+            }
+            free(primes_sqrt);
+            MPI_Finalize();
+            return 1;
+        }
+
+        // Write base primes
+        for (size_t i = 0; i < prime_count; i++)
+            fprintf(fout, "%llu\n", (unsigned long long)primes_sqrt[i]);
+
+        // Write primes from slaves
+        if (size > 1) {
+            for (int s = 1; s < size; s++) {
+                for (size_t i = 0; i < slave_results[s-1].count; i++)
+                    fprintf(fout, "%llu\n", (unsigned long long)slave_results[s-1].primes[i]);
+                if (slave_results[s-1].count > 0) free(slave_results[s-1].primes);
+            }
+            free(slave_results);
+        }
+        
+        fclose(fout);
     }
 
     free(primes_sqrt);
